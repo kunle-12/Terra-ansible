@@ -1,10 +1,17 @@
-name: Terraform + Ansible Deploy
+name: Deploy Azure VM with Terraform & Configure with Ansible
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - master
-  workflow_dispatch:
+
+env:
+  TF_LOG: INFO
+  ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+  ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+  ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+  ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
 
 permissions:
   contents: read
@@ -26,36 +33,36 @@ jobs:
       run: terraform init
 
     - name: Terraform Apply
-      run: terraform apply -auto-approve
-
-    - name: Save SSH private key
-      id: ssh
+      id: tfapply
       run: |
-        echo "${{ steps.apply.outputs.private_key_pem }}" > private_key.pem
+        terraform apply -auto-approve
+
+    - name: Save Private Key
+      run: |
+        terraform output -raw private_key_pem > private_key.pem
         chmod 600 private_key.pem
 
-    - name: Get public IP
-      id: tfout
+    - name: Get VM IP
+      id: vmip
       run: |
-        echo "vm_ip=$(terraform output -raw vm_ip)" >> "$GITHUB_OUTPUT"
+        echo "ip=$(terraform output -raw vm_ip)" >> "$GITHUB_OUTPUT"
 
     - name: Install Ansible
       run: |
         python3 -m pip install --upgrade pip
         pip install ansible
 
-    - name: Wait for SSH to be ready
+    - name: Wait for SSH to become available
       run: |
         for i in {1..60}; do
-          nc -z ${{ steps.tfout.outputs.vm_ip }} 22 && break
-          echo "Waiting for SSH..."
+          nc -z ${{ steps.vmip.outputs.ip }} 22 && break
+          echo "Waiting for SSH on ${{ steps.vmip.outputs.ip }}..."
           sleep 5
         done
 
     - name: Run Ansible Playbook
       run: |
-        ansible-playbook -i '${{ steps.tfout.outputs.vm_ip }},' \
+        ansible-playbook -i '${{ steps.vmip.outputs.ip }},' \
           -u azureuser \
           --private-key private_key.pem \
-          site.yml
-
+          ansible/site.yml
