@@ -4,13 +4,13 @@ variable "resource_group_name" {
 variable "location" {
   default = "East US"
 }
-variable "ansiblevm" {
-  default = "auto-vm"
+variable "vm_name" {
+  default = "ansibletest"
 }
 variable "vm_size" {
   default = "Standard_B2s"
 }
-variable "testadmin" {
+variable "admin_username" {
   default = "azureuser"
 }
 variable "disk_size_gb" {
