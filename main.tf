@@ -1,99 +1,68 @@
-provider "azurerm" {
-  features {}
-}
+name: Deploy Azure VM with Terraform & Configure with Ansible
 
-resource "azurerm_resource_group" "rg" {
-  name     = var.resource_group_name
-  location = var.location
-}
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
 
-resource "tls_private_key" "ssh" {
-  algorithm = "RSA"
-  rsa_bits  = 4096
-}
+env:
+  TF_LOG: INFO
+  ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
+  ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
+  ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
+  ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
 
-resource "azurerm_ssh_public_key" "key" {
-  name                = "${var.vm_name}-ssh-key"
-  resource_group_name = azurerm_resource_group.rg.name
-  location            = azurerm_resource_group.rg.location
-  public_key          = tls_private_key.ssh.public_key_openssh
-}
+permissions:
+  contents: read
 
-resource "azurerm_virtual_network" "vnet" {
-  name                = "${var.vm_name}-vnet"
-  address_space       = ["10.0.0.0/16"]
-  location            = azurerm_resource_group.rg.location
-  resource_group_name = azurerm_resource_group.rg.name
-}
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
 
-resource "azurerm_subnet" "subnet" {
-  name                 = "default"
-  resource_group_name  = azurerm_resource_group.rg.name
-  virtual_network_name = azurerm_virtual_network.vnet.name
-  address_prefixes     = ["10.0.1.0/24"]
-}
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
 
-resource "azurerm_public_ip" "public_ip" {
-  name                = "${var.vm_name}-pip"
-  resource_group_name = azurerm_resource_group.rg.name
-  location            = azurerm_resource_group.rg.location
-  allocation_method   = "Static"
-  sku                 = "Basic"
-}
+    - name: Set up Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: 1.6.0
 
-resource "azurerm_network_interface" "nic" {
-  name                = "${var.vm_name}-nic"
-  location            = azurerm_resource_group.rg.location
-  resource_group_name = azurerm_resource_group.rg.name
+    - name: Terraform Init
+      run: terraform init
 
-  ip_configuration {
-    name                          = "internal"
-    subnet_id                     = azurerm_subnet.subnet.id
-    private_ip_address_allocation = "Dynamic"
-    public_ip_address_id          = azurerm_public_ip.public_ip.id
-  }
-}
+    - name: Terraform Apply
+      id: tfapply
+      run: |
+        terraform apply -auto-approve
 
-resource "azurerm_linux_virtual_machine" "vm" {
-  name                  = var.vm_name
-  location              = azurerm_resource_group.rg.location
-  resource_group_name   = azurerm_resource_group.rg.name
-  size                  = var.vm_size
-  admin_username        = var.admin_username
-  network_interface_ids = [azurerm_network_interface.nic.id]
+    - name: Save Private Key
+      run: |
+        terraform output -raw private_key_pem > private_key.pem
+        chmod 600 private_key.pem
 
-  disable_password_authentication = true
+    - name: Get VM IP
+      id: vmip
+      run: |
+        echo "ip=$(terraform output -raw vm_ip)" >> "$GITHUB_OUTPUT"
 
-  admin_ssh_key {
-    username   = var.admin_username
-    public_key = tls_private_key.ssh.public_key_openssh
-  }
+    - name: Install Ansible
+      run: |
+        python3 -m pip install --upgrade pip
+        pip install ansible
 
-  os_disk {
-    name                 = "${var.vm_name}-osdisk"
-    caching              = "ReadWrite"
-    storage_account_type = "Standard_LRS"
-    disk_size_gb         = var.disk_size_gb
-  }
+    - name: Wait for SSH to become available
+      run: |
+        for i in {1..60}; do
+          nc -z ${{ steps.vmip.outputs.ip }} 22 && break
+          echo "Waiting for SSH on ${{ steps.vmip.outputs.ip }}..."
+          sleep 5
+        done
 
-  source_image_reference {
-    publisher = "Canonical"
-    offer     = "0001-com-ubuntu-server-jammy"
-    sku       = "22_04-lts"
-    version   = "latest"
-  }
-
-  provisioner "local-exec" {
-    command = "echo '${tls_private_key.ssh.private_key_pem}' > private_key.pem && chmod 600 private_key.pem"
-  }
-}
-
-output "vm_ip" {
-  value = azurerm_public_ip.public_ip.ip_address
-}
-
-output "private_key_pem" {
-  sensitive = true
-  value     = tls_private_key.ssh.private_key_pem
-}
-
+    - name: Run Ansible Playbook
+      run: |
+        ansible-playbook -i '${{ steps.vmip.outputs.ip }},' \
+          -u azureuser \
+          --private-key private_key.pem \
+          ansible/site.yml
