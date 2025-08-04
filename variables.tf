@@ -1,16 +1,16 @@
 variable "resource_group_name" {
-  default = "rg-auto-vm"
+  default = "rg-testenv"
 }
 variable "location" {
   default = "East US"
 }
-variable "vm_name" {
+variable "ansiblevm" {
   default = "auto-vm"
 }
 variable "vm_size" {
   default = "Standard_B2s"
 }
-variable "admin_username" {
+variable "testadmin" {
   default = "azureuser"
 }
 variable "disk_size_gb" {
