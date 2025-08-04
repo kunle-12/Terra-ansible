@@ -1,0 +1,61 @@
+name: Terraform + Ansible Deploy
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: 1.6.0
+
+    - name: Terraform Init
+      run: terraform init
+
+    - name: Terraform Apply
+      run: terraform apply -auto-approve
+
+    - name: Save SSH private key
+      id: ssh
+      run: |
+        echo "${{ steps.apply.outputs.private_key_pem }}" > private_key.pem
+        chmod 600 private_key.pem
+
+    - name: Get public IP
+      id: tfout
+      run: |
+        echo "vm_ip=$(terraform output -raw vm_ip)" >> "$GITHUB_OUTPUT"
+
+    - name: Install Ansible
+      run: |
+        python3 -m pip install --upgrade pip
+        pip install ansible
+
+    - name: Wait for SSH to be ready
+      run: |
+        for i in {1..60}; do
+          nc -z ${{ steps.tfout.outputs.vm_ip }} 22 && break
+          echo "Waiting for SSH..."
+          sleep 5
+        done
+
+    - name: Run Ansible Playbook
+      run: |
+        ansible-playbook -i '${{ steps.tfout.outputs.vm_ip }},' \
+          -u azureuser \
+          --private-key private_key.pem \
+          site.yml
+
