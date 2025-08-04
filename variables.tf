@@ -14,6 +14,6 @@ variable "admin_username" {
   default = "azureuser"
 }
 variable "disk_size_gb" {
-  default = 10
+  default = 30
 }
 
