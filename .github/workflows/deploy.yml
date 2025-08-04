@@ -52,17 +52,26 @@ jobs:
         python3 -m pip install --upgrade pip
         pip install ansible
 
+    - name: Set up SSH key
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+        chmod 600 ~/.ssh/id_rsa
+
     - name: Wait for SSH to become available
       run: |
+        IP=${{ steps.vmip.outputs.ip }}
         for i in {1..60}; do
-          nc -z ${{ steps.vmip.outputs.ip }} 22 && break
-          echo "Waiting for SSH on ${{ steps.vmip.outputs.ip }}..."
+          nc -z "$IP" 22 && echo "SSH is available" && exit 0
+          echo "Waiting for SSH on $IP... ($i/60)"
           sleep 5
         done
+        echo "Timed out waiting for SSH"
+        exit 1
 
     - name: Run Ansible Playbook
       run: |
-        ansible-playbook -i '${{ steps.vmip.outputs.ip }},' \
+        ansible-playbook -i "${{ steps.vmip.outputs.ip }}," \
           -u azureuser \
-          --private-key private_key.pem \
+          --private-key ~/.ssh/id_rsa \
           ansible/site.yml
