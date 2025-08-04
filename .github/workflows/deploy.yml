@@ -54,20 +54,22 @@ jobs:
 
     - name: Set up SSH key
       run: |
-        mkdir -p ~/.ssh
-        echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
-        chmod 600 ~/.ssh/id_rsa
+         mkdir -p ~/.ssh
+         echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
+         chmod 600 ~/.ssh/id_rsa
+         ssh-keyscan -H ${{ steps.vmip.outputs.ip }} >> ~/.ssh/known_hosts || true
 
     - name: Wait for SSH to become available
       run: |
         IP=${{ steps.vmip.outputs.ip }}
         for i in {1..60}; do
-          nc -z "$IP" 22 && echo "SSH is available" && exit 0
-          echo "Waiting for SSH on $IP... ($i/60)"
-          sleep 5
+           ssh -o BatchMode=yes -o StrictHostKeyChecking=no -i ~/.ssh/id_rsa azureuser@$IP 'echo "SSH available"' && exit 0
+           echo "Waiting for SSH on $IP... ($i/60)"
+           sleep 5
         done
         echo "Timed out waiting for SSH"
         exit 1
+
 
     - name: Run Ansible Playbook
       run: |
