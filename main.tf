@@ -47,7 +47,6 @@ resource "azurerm_network_security_group" "nsg" {
   resource_group_name = azurerm_resource_group.rg.name
 }
 
-
 resource "azurerm_network_security_rule" "allow_ssh" {
   name                        = "AllowSSH"
   priority                    = 1001
@@ -61,7 +60,6 @@ resource "azurerm_network_security_rule" "allow_ssh" {
   resource_group_name         = azurerm_resource_group.rg.name
   network_security_group_name = azurerm_network_security_group.nsg.name
 }
-
 
 resource "azurerm_network_interface" "nic" {
   name                = "${var.vm_name}-nic"
@@ -106,7 +104,10 @@ resource "azurerm_linux_virtual_machine" "vm" {
   }
 
   provisioner "local-exec" {
-    command = "echo '${tls_private_key.ssh.private_key_pem}' > private_key.pem && chmod 600 private_key.pem"
+    command = <<EOT
+    echo '${tls_private_key.ssh.private_key_pem}' > private_key.pem
+    chmod 600 private_key.pem
+    EOT
   }
 }
 
@@ -114,9 +115,7 @@ output "vm_private_ip" {
   value = azurerm_network_interface.nic.private_ip_address
 }
 
-
 output "private_key_pem" {
   sensitive = true
   value     = tls_private_key.ssh.private_key_pem
 }
-

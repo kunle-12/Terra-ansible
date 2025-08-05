@@ -1,87 +1,69 @@
-name: Deploy Azure VM with Terraform & Configure with Ansible
+name: Deploy and Configure Azure VM
 
 on:
-  workflow_dispatch:
   push:
     branches:
       - master
+  workflow_dispatch:
 
 env:
-  TF_LOG: INFO
-  ARM_CLIENT_ID: ${{ secrets.ARM_CLIENT_ID }}
-  ARM_CLIENT_SECRET: ${{ secrets.ARM_CLIENT_SECRET }}
-  ARM_SUBSCRIPTION_ID: ${{ secrets.ARM_SUBSCRIPTION_ID }}
-  ARM_TENANT_ID: ${{ secrets.ARM_TENANT_ID }}
-
-permissions:
-  contents: read
+  TF_IN_AUTOMATION: true
 
 jobs:
   deploy:
+    name: Provision VM and Run Ansible
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    - name: Set up Terraform
-      uses: hashicorp/setup-terraform@v3
-      with:
-        terraform_version: 1.6.0
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.6.6
 
-    - name: Terraform Init
-      run: terraform init
+      - name: Terraform Init
+        run: terraform init
 
-    - name: Terraform Apply
-      id: tfapply
-      run: |
-        terraform apply -auto-approve
+      - name: Terraform Apply
+        id: tf
+        run: |
+          terraform apply -var-file="env/dev.tfvars" -auto-approve \
+            -no-color \
+            -input=false
 
-    - name: Save Private Key
-      run: |
-        terraform output -raw private_key_pem > private_key.pem
-        chmod 600 private_key.pem
+      - name: Save Private Key to File
+        run: |
+          echo "${{ steps.tf.outputs.private_key_pem }}" > private_key.pem
+          chmod 600 private_key.pem
 
-    - name: Get VM IP
-      id: vmip
-      run: |
-        echo "ip=$(terraform output -raw vm_ip)" >> "$GITHUB_OUTPUT"
+      - name: Generate dynamic Ansible inventory
+        id: make_inventory
+        run: |
+          echo "[azure_vm]" > inventory.ini
+          echo "${{ steps.tf.outputs.vm_private_ip }}" >> inventory.ini
+          echo "" >> inventory.ini
+          echo "[azure_vm:vars]" >> inventory.ini
+          echo "ansible_user=${{ secrets.VM_USERNAME }}" >> inventory.ini
+          echo "ansible_ssh_private_key_file=private_key.pem" >> inventory.ini
 
-    - name: Install Ansible
-      run: |
-        python3 -m pip install --upgrade pip
-        pip install ansible
-      
-    - name: Set up SSH key
-      run: |
-         mkdir -p ~/.ssh
-         echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
-         chmod 600 ~/.ssh/id_rsa
+      - name: Install Ansible
+        run: |
+          python3 -m pip install --upgrade pip
+          pip install ansible
 
-    - name: Wait for SSH to become available (Private IP)
-      run: |
-        IP=${{ steps.vmip.outputs.private_ip }}
-        echo "::group::Waiting for SSH on $IP"
-        for i in {1..10; do
-          if nc -z "$IP" 22; then
-            echo "::debug::SSH is available on $IP"
-            echo "::endgroup::"
-            exit 0
-          fi
-          echo "::debug::Waiting for SSH on $IP... ($i/10)"
-          sleep 5
-        done
-        echo "::endgroup::"
-        echo "::error::Timed out waiting for SSH on $IP"
-        exit 1
+      - name: Wait for SSH to become available
+        run: |
+          IP="${{ steps.tf.outputs.vm_private_ip }}"
+          for i in {1..60}; do
+            nc -z "$IP" 22 && echo "SSH is available" && exit 0
+            echo "Waiting for SSH on $IP... ($i/60)"
+            sleep 5
+          done
+          echo "Timed out waiting for SSH"
+          exit 1
 
-                            
-    
-
-
-    - name: Run Ansible Playbook
-      run: |
-        ansible-playbook -i "${{ steps.vmip.outputs.ip }}," \
-          -u azureuser \
-          --private-key ~/.ssh/id_rsa \
-          ansible/site.yml
+      - name: Run Ansible Playbook
+        run: |
+          ansible-playbook -i inventory.ini ansible/site.yml
