@@ -67,16 +67,16 @@ jobs:
           python3 -m pip install --upgrade pip
           pip install ansible
 
-    - name: Wait for SSH to become available
-      run: |
-        IP="${{ steps.tf_outputs.outputs.vm_private_ip }}"
-        for i in {1..60}; do
-          nc -z "$IP" 22 && echo "SSH is available" && exit 0
-          echo "Waiting for SSH on $IP... ($i/60)"
-          sleep 5
-        done
-        echo "Timed out waiting for SSH"
-        exit 1
+    # - name: Wait for SSH to become available
+    #   run: |
+    #     IP="${{ steps.tf_outputs.outputs.vm_private_ip }}"
+    #     for i in {1..60}; do
+    #       nc -z "$IP" 22 && echo "SSH is available" && exit 0
+    #       echo "Waiting for SSH on $IP... ($i/60)"
+    #       sleep 5
+    #     done
+    #     echo "Timed out waiting for SSH"
+    #     exit 1
 
 
     - name: Run Ansible Playbook
