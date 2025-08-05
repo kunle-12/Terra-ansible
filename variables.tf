@@ -1,5 +1,5 @@
 variable "resource_group_name" {
-  default = "rg-testenv"
+  default = "rg-test"
 }
 variable "location" {
   default = "East US"
