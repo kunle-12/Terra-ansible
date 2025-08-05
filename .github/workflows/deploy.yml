@@ -37,6 +37,15 @@ jobs:
       run: |
         terraform apply -auto-approve
     
+    
+    - name: Capture Terraform Outputs
+      id: tf_outputs
+      run: |
+        echo "vm_private_ip=$(terraform output -raw vm_private_ip)" >> $GITHUB_OUTPUT
+        echo "private_key_pem<<EOF" >> $GITHUB_OUTPUT
+        terraform output -raw private_key_pem >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+
  
     - name: Save Private Key to File
       run: |
@@ -60,14 +69,15 @@ jobs:
 
     - name: Wait for SSH to become available
       run: |
-          IP="${{ steps.tf.outputs.vm_private_ip }}"
-          for i in {1..60}; do
-            nc -z "$IP" 22 && echo "SSH is available" && exit 0
-            echo "Waiting for SSH on $IP... ($i/60)"
-            sleep 5
-          done
-          echo "Timed out waiting for SSH"
-          exit 1
+        IP="${{ steps.tf_outputs.outputs.vm_private_ip }}"
+        for i in {1..60}; do
+          nc -z "$IP" 22 && echo "SSH is available" && exit 0
+          echo "Waiting for SSH on $IP... ($i/60)"
+          sleep 5
+        done
+        echo "Timed out waiting for SSH"
+        exit 1
+
 
     - name: Run Ansible Playbook
       run: |
